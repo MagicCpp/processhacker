@@ -26,8 +26,9 @@
 #define PHMOTLC_LOADREASON 15
 #define PHMOTLC_FILEMODIFIEDTIME 16
 #define PHMOTLC_FILESIZE 17
+#define PHMOTLC_PARENTBASEADDRESS 18
 
-#define PHMOTLC_MAXIMUM 18
+#define PHMOTLC_MAXIMUM 19
 
 // begin_phapppub
 typedef struct _PH_MODULE_NODE
@@ -37,6 +38,9 @@ typedef struct _PH_MODULE_NODE
     PH_SH_STATE ShState;
 
     PPH_MODULE_ITEM ModuleItem;
+
+    struct _PH_MODULE_NODE *Parent;
+    PPH_LIST Children;
 // end_phapppub
 
     PH_STRINGREF TextCache[PHMOTLC_MAXIMUM];
@@ -85,6 +89,7 @@ typedef struct _PH_MODULE_LIST_CONTEXT
 
     PPH_HASHTABLE NodeHashtable;
     PPH_LIST NodeList;
+    PPH_LIST NodeRootList;
     PPH_POINTER_LIST NodeStateList;
 
     HFONT BoldFont;

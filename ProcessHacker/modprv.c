@@ -459,6 +459,10 @@ VOID PhModuleProviderUpdate(
 
             moduleItem->BaseAddress = module->BaseAddress;
             PhPrintPointer(moduleItem->BaseAddressString, moduleItem->BaseAddress);
+
+            moduleItem->ParentBaseAddress = module->ParentBaseAddress; 
+            PhPrintPointer(moduleItem->ParentBaseAddressString, moduleItem->ParentBaseAddress);
+
             moduleItem->Size = module->Size;
             moduleItem->Flags = module->Flags;
             moduleItem->Type = module->Type;
@@ -468,6 +472,7 @@ VOID PhModuleProviderUpdate(
 
             moduleItem->Name = module->Name;
             PhReferenceObject(moduleItem->Name);
+
             moduleItem->FileName = module->FileName;
             PhReferenceObject(moduleItem->FileName);
 

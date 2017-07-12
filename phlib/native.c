@@ -5149,6 +5149,7 @@ static BOOLEAN EnumGenericProcessModulesCallback(
 
     moduleInfo.Type = context->Type;
     moduleInfo.BaseAddress = Module->DllBase;
+    moduleInfo.ParentBaseAddress = Module->ParentDllBase;
     moduleInfo.Size = Module->SizeOfImage;
     moduleInfo.EntryPoint = Module->EntryPoint;
     moduleInfo.Flags = Module->Flags;
@@ -5324,6 +5325,7 @@ BOOLEAN PhpCallbackMappedFileOrImage(
 
     moduleInfo.Type = Type;
     moduleInfo.BaseAddress = AllocationBase;
+    moduleInfo.ParentBaseAddress = NULL;
     moduleInfo.Size = (ULONG)AllocationSize;
     moduleInfo.EntryPoint = NULL;
     moduleInfo.Flags = 0;

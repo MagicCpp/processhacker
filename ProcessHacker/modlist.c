@@ -83,6 +83,7 @@ VOID PhInitializeModuleList(
         100
         );
     Context->NodeList = PhCreateList(100);
+    Context->NodeRootList = PhCreateList(20);
 
     Context->ParentWindowHandle = ParentWindowHandle;
     Context->TreeNewHandle = TreeNewHandle;
@@ -114,6 +115,7 @@ VOID PhInitializeModuleList(
     PhAddTreeNewColumn(hwnd, PHMOTLC_LOADREASON, FALSE, L"Load reason", 80, PH_ALIGN_LEFT, -1, 0);
     PhAddTreeNewColumnEx(hwnd, PHMOTLC_FILEMODIFIEDTIME, FALSE, L"File modified time", 140, PH_ALIGN_LEFT, -1, 0, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHMOTLC_FILESIZE, FALSE, L"File size", 70, PH_ALIGN_RIGHT, -1, DT_RIGHT, TRUE);
+    PhAddTreeNewColumn(hwnd, PHMOTLC_PARENTBASEADDRESS, TRUE, L"Parent base address", 80, PH_ALIGN_RIGHT, 0, DT_RIGHT);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -228,6 +230,8 @@ PPH_MODULE_NODE PhAddModuleNode(
     )
 {
     PPH_MODULE_NODE moduleNode;
+    PPH_MODULE_NODE parentNode;
+    ULONG i;
 
     moduleNode = PhAllocate(PhEmGetObjectSize(EmModuleNodeType, sizeof(PH_MODULE_NODE)));
     memset(moduleNode, 0, sizeof(PH_MODULE_NODE));
@@ -252,11 +256,56 @@ PPH_MODULE_NODE PhAddModuleNode(
     moduleNode->Node.TextCache = moduleNode->TextCache;
     moduleNode->Node.TextCacheSize = PHMOTLC_MAXIMUM;
 
+    moduleNode->Children = PhCreateList(1);
+
+    // Find this module' parent and add the module to it if we found it.
+    if (
+        ModuleItem->ParentBaseAddress &&
+        (parentNode = PhFindModuleNode(Context, ModuleItem)) &&
+        ModuleItem->ParentBaseAddress == parentNode->ModuleItem->ParentBaseAddress
+        )
+    {
+        PhAddItemList(parentNode->Children, moduleNode);
+        moduleNode->Parent = parentNode;
+    }
+    else
+    {
+        // No parent, add to root list.
+        moduleNode->Parent = NULL;
+        PhAddItemList(Context->NodeRootList, moduleNode);
+    }
+
+    // Find this module' children and move them to this node.
+
+    for (i = 0; i < Context->NodeRootList->Count; i++)
+    {
+        PPH_MODULE_NODE node = Context->NodeRootList->Items[i];
+
+        if (
+            node != moduleNode && 
+            node->ModuleItem->ParentBaseAddress && 
+            ModuleItem->ParentBaseAddress && 
+            node->ModuleItem->ParentBaseAddress == ModuleItem->ParentBaseAddress
+            )
+        {
+            node->Parent = moduleNode;
+            PhAddItemList(moduleNode->Children, node);
+        }
+    }
+
+    for (i = 0; i < moduleNode->Children->Count; i++)
+    {
+        PhRemoveItemList(
+            Context->NodeRootList,
+            PhFindItemList(Context->NodeRootList, moduleNode->Children->Items[i])
+            );
+    }
+
     PhAddEntryHashtable(Context->NodeHashtable, &moduleNode);
     PhAddItemList(Context->NodeList, moduleNode);
 
-    if (Context->TreeFilterSupport.FilterList)
-        moduleNode->Node.Visible = PhApplyTreeNewFiltersToNode(&Context->TreeFilterSupport, &moduleNode->Node);
+    //if (Context->TreeFilterSupport.FilterList)
+    moduleNode->Node.Visible = 1;// PhApplyTreeNewFiltersToNode(&Context->TreeFilterSupport, &moduleNode->Node);
 
     PhEmCallObjectOperation(EmModuleNodeType, moduleNode, EmObjectCreate);
 
@@ -582,64 +631,81 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
     case TreeNewGetChildren:
         {
             PPH_TREENEW_GET_CHILDREN getChildren = Parameter1;
+            node = (PPH_MODULE_NODE)getChildren->Node;
 
-            if (!getChildren->Node)
+            if (context->TreeNewSortOrder == NoSortOrder)
             {
-                static PVOID sortFunctions[] =
+                if (!node)
                 {
-                    SORT_FUNCTION(Name),
-                    SORT_FUNCTION(BaseAddress),
-                    SORT_FUNCTION(Size),
-                    SORT_FUNCTION(Description),
-                    SORT_FUNCTION(CompanyName),
-                    SORT_FUNCTION(Version),
-                    SORT_FUNCTION(FileName),
-                    SORT_FUNCTION(Type),
-                    SORT_FUNCTION(LoadCount),
-                    SORT_FUNCTION(VerificationStatus),
-                    SORT_FUNCTION(VerifiedSigner),
-                    SORT_FUNCTION(Aslr),
-                    SORT_FUNCTION(TimeStamp),
-                    SORT_FUNCTION(CfGuard),
-                    SORT_FUNCTION(LoadTime),
-                    SORT_FUNCTION(LoadReason),
-                    SORT_FUNCTION(FileModifiedTime),
-                    SORT_FUNCTION(FileSize)
-                };
-                int (__cdecl *sortFunction)(void *, const void *, const void *);
-
-                if (context->TreeNewSortOrder == NoSortOrder)
-                {
-                    sortFunction = SORT_FUNCTION(TriState);
+                    getChildren->Children = (PPH_TREENEW_NODE *)context->NodeRootList->Items;
+                    getChildren->NumberOfChildren = context->NodeRootList->Count;
                 }
                 else
                 {
-                    if (!PhCmForwardSort(
-                        (PPH_TREENEW_NODE *)context->NodeList->Items,
-                        context->NodeList->Count,
-                        context->TreeNewSortColumn,
-                        context->TreeNewSortOrder,
-                        &context->Cm
-                        ))
+                    getChildren->Children = (PPH_TREENEW_NODE *)node->Children->Items;
+                    getChildren->NumberOfChildren = node->Children->Count;
+                }
+            }
+            else
+            {
+                if (!node)
+                {
+                    static PVOID sortFunctions[] =
                     {
-                        if (context->TreeNewSortColumn < PHMOTLC_MAXIMUM)
-                            sortFunction = sortFunctions[context->TreeNewSortColumn];
-                        else
-                            sortFunction = NULL;
+                        SORT_FUNCTION(Name),
+                        SORT_FUNCTION(BaseAddress),
+                        SORT_FUNCTION(Size),
+                        SORT_FUNCTION(Description),
+                        SORT_FUNCTION(CompanyName),
+                        SORT_FUNCTION(Version),
+                        SORT_FUNCTION(FileName),
+                        SORT_FUNCTION(Type),
+                        SORT_FUNCTION(LoadCount),
+                        SORT_FUNCTION(VerificationStatus),
+                        SORT_FUNCTION(VerifiedSigner),
+                        SORT_FUNCTION(Aslr),
+                        SORT_FUNCTION(TimeStamp),
+                        SORT_FUNCTION(CfGuard),
+                        SORT_FUNCTION(LoadTime),
+                        SORT_FUNCTION(LoadReason),
+                        SORT_FUNCTION(FileModifiedTime),
+                        SORT_FUNCTION(FileSize)
+                    };
+                    int(__cdecl *sortFunction)(void *, const void *, const void *);
+
+                    if (context->TreeNewSortOrder == NoSortOrder)
+                    {
+                        sortFunction = SORT_FUNCTION(TriState);
                     }
                     else
                     {
-                        sortFunction = NULL;
+                        if (!PhCmForwardSort(
+                            (PPH_TREENEW_NODE *)context->NodeList->Items,
+                            context->NodeList->Count,
+                            context->TreeNewSortColumn,
+                            context->TreeNewSortOrder,
+                            &context->Cm
+                            ))
+                        {
+                            if (context->TreeNewSortColumn < PHMOTLC_MAXIMUM)
+                                sortFunction = sortFunctions[context->TreeNewSortColumn];
+                            else
+                                sortFunction = NULL;
+                        }
+                        else
+                        {
+                            sortFunction = NULL;
+                        }
                     }
-                }
 
-                if (sortFunction)
-                {
-                    qsort_s(context->NodeList->Items, context->NodeList->Count, sizeof(PVOID), sortFunction, context);
-                }
+                    if (sortFunction)
+                    {
+                        qsort_s(context->NodeList->Items, context->NodeList->Count, sizeof(PVOID), sortFunction, context);
+                    }
 
-                getChildren->Children = (PPH_TREENEW_NODE *)context->NodeList->Items;
-                getChildren->NumberOfChildren = context->NodeList->Count;
+                    getChildren->Children = (PPH_TREENEW_NODE *)context->NodeList->Items;
+                    getChildren->NumberOfChildren = context->NodeList->Count;
+                }
             }
         }
         return TRUE;
@@ -647,7 +713,12 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
         {
             PPH_TREENEW_IS_LEAF isLeaf = Parameter1;
 
-            isLeaf->IsLeaf = TRUE;
+            node = (PPH_MODULE_NODE)isLeaf->Node;
+
+            if (context->TreeNewSortOrder == NoSortOrder)
+                isLeaf->IsLeaf = node->Children->Count == 0;
+            else
+                isLeaf->IsLeaf = TRUE;
         }
         return TRUE;
     case TreeNewGetCellText:
@@ -662,9 +733,12 @@ BOOLEAN NTAPI PhpModuleTreeNewCallback(
             {
             case PHMOTLC_NAME:
                 getCellText->Text = moduleItem->Name->sr;
-                break;
+                break; 
             case PHMOTLC_BASEADDRESS:
                 PhInitializeStringRefLongHint(&getCellText->Text, moduleItem->BaseAddressString);
+                break;
+            case PHMOTLC_PARENTBASEADDRESS:
+                PhInitializeStringRefLongHint(&getCellText->Text, moduleItem->ParentBaseAddressString);
                 break;
             case PHMOTLC_SIZE:
                 if (!node->SizeText)
